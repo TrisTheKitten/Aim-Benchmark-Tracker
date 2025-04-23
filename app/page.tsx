@@ -78,7 +78,7 @@ export default function AimTrackerPage() {
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiRecommendations, setAiRecommendations] = useState('Enter API key and analyze performance.');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false); // State for copy feedback
+  const [promptCopied, setPromptCopied] = useState(false); 
   const [theme, setTheme] = useState<Theme>('dark');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [showBulkAddModal, setShowBulkAddModal] = useState(false);
@@ -87,7 +87,7 @@ export default function AimTrackerPage() {
   const [chartTimePeriod, setChartTimePeriod] = useState<'7d' | '30d' | 'all'>('all'); 
   const [scenarioSearchTerm, setScenarioSearchTerm] = useState('');
 
-  // Define the constant used for limiting data for AI context
+  
   const MAX_ENTRIES_FOR_AI = 100;
   
   useEffect(() => {
@@ -460,7 +460,7 @@ export default function AimTrackerPage() {
     }
   };
 
-  // Handler for copying the prompt
+  
   const handleCopyPrompt = () => {
     const systemPrompt = `You are an expert FPS aim coach analyzing aim trainer benchmark data. Your goal is to provide insightful, actionable feedback based ONLY on the provided data using the gpt-4o-mini model. 
 
@@ -481,20 +481,17 @@ Analysis :  (2-3 sentences)
 - Analyze the Score/Accuracy Relationship: Interpret what the average score and accuracy imply (e.g., fast but imprecise, slow but precise, good balance).
 - Base these points strictly on the provided recent benchmark list.
 - Look at the \`Recent Benchmark Scores\` list. Comment on patterns in specific scenarios 
-- Dont include conclusions or generic advice.
 (separate this line) " ------------------------- " 
 Game-based Suggestions : (1-2 sentences)
 - Briefly suggest how the observed patterns might translate to performance (focus on weaknesses) in the specified game.
 - Focus on the biggest area for improvement (e.g., speed, precision under pressure, consistency).
 - Provide 1-2 specific, constructive suggestions for in game improvement as bullet points. (dont be generic be specific)
-- Dont include conclusions or generic advice.
 (separate this line) " ------------------------- " 
 Overall Recommendations and Tips : (1-2 sentences)
 - Provide 1-2 specific, constructive suggestions(focus on weaknesses) for improvement as bullet points.(dont be generic be specific)
 - Focus on whether to prioritize speed, precision, or consistency or other aspects based on the analysis.
 - Suggest specific scenarios to focus on based on the analysis.(be specific)
 - Provide 1-2 specific, constructive suggestions(training methods, areas of focus etc based on weaknesses) for improvement as bullet points.
-- Dont include conclusions or generic advice.
 (separate this line) " ------------------------- " 
 Training Plan (next 7 days)
 - Primary drill: <scenario> — focus on <speed/precision/consistency>.  
@@ -525,18 +522,18 @@ Recent Benchmark Scores (up to ${MAX_ENTRIES_FOR_AI} most recent within filter):
 ${relevantBenchmarks.length > 0
   ? relevantBenchmarks.map(b =>
       `- ${b.date} | ${b.scenario} | Score: ${b.score.toLocaleString()} | Acc: ${b.accuracy}% | Diff: ${b.difficulty}${b.notes ? ` | Notes: \"${b.notes}\"` : ''}`
-    ).join('\\n') // Ensure newline characters are correctly represented in the final string
+    ).join('\\n') 
   : 'No recent benchmark data available for this filter.'
 }
 
 Please provide coaching feedback based on this data, following the structured approach outlined.
 `;
 
-    const fullPrompt = `--- SYSTEM PROMPT ---\n\n${systemPrompt}\n\n--- USER PROMPT ---\n${userPrompt}`; // Remove unnecessary extra backslashes
+    const fullPrompt = `--- SYSTEM PROMPT ---\n\n${systemPrompt}\n\n--- USER PROMPT ---\n${userPrompt}`; 
 
     navigator.clipboard.writeText(fullPrompt).then(() => {
       setPromptCopied(true);
-      setTimeout(() => setPromptCopied(false), 2000); // Reset after 2 seconds
+      setTimeout(() => setPromptCopied(false), 2000); 
     }).catch(err => {
       console.error('Failed to copy prompt: ', err);
       alert('Failed to copy prompt to clipboard.');
@@ -711,27 +708,27 @@ Please provide coaching feedback based on this data, following the structured ap
 
       let addedCount = 0;
       setBenchmarks(prevBenchmarks => {
-        // Remove the duplicate checking logic
-        // const existingEntries = new Set(
-        //   prevBenchmarks.map(b => `${b.scenario}-${b.date}-${b.score}`)
-        // );
-        // 
-        // const newEntries = importedScores.filter((imported: BenchmarkScore) => {
-        //   const key = `${imported.scenario}-${imported.date}-${imported.score}`;
-        //   return !existingEntries.has(key);
-        // });
-        // 
-        // addedCount = newEntries.length;
-        // 
-        // if (addedCount > 0) {
-        //   console.log(`Adding ${addedCount} new unique scores.`);
-        //   return [...prevBenchmarks, ...newEntries];
-        // } else {
-        //   console.log('No new unique scores found to import.');
-        //   return prevBenchmarks; 
-        // }
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
 
-        // Simply concatenate the imported scores
+        
         addedCount = importedScores.length;
         if (addedCount > 0) {
           console.log(`Importing ${addedCount} scores (including potential duplicates).`);
@@ -749,7 +746,7 @@ Please provide coaching feedback based on this data, following the structured ap
           } else {
               alert('No scores found in the KovaaK&apos;s files directory or files were unparseable.');
           }
-          // Removed the message for 'no new unique scores' as duplicates are now allowed
+          
       }, 100); 
 
     } catch (error) {
@@ -811,86 +808,6 @@ Please provide coaching feedback based on this data, following the structured ap
     scoreImprovementPercent: number | null; 
     accuracyImprovementPercent: number | null; 
   };
-
-  
-  const periodStats = useMemo<PeriodStats>(() => {
-    console.log(`Calculating period stats for: ${chartTimePeriod}, Scenarios: ${selectedScenarios.join(', ') || 'All'}`);
-    
-    
-    const scenarioFilteredData = selectedScenarios.length > 0
-      ? benchmarks.filter(b => selectedScenarios.includes(b.scenario))
-      : benchmarks;
-
-    if (scenarioFilteredData.length === 0) {
-      return { scoreStdDev: 0, accuracyStdDev: 0, scoreImprovementPercent: null, accuracyImprovementPercent: null };
-    }
-
-    
-    let timeFilteredData = scenarioFilteredData;
-    let startDate: Date | null = null;
-    let endDate: Date | null = null;
-
-    if (chartTimePeriod !== 'all') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const daysToSubtract = chartTimePeriod === '7d' ? 7 : 30;
-      const cutoffDate = new Date(today);
-      cutoffDate.setDate(today.getDate() - daysToSubtract);
-      const cutoffTimestamp = cutoffDate.getTime();
-
-      timeFilteredData = scenarioFilteredData.filter(b => {
-        try {
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date)) return false;
-          const benchmarkDate = new Date(b.date + 'T00:00:00Z');
-          if (isNaN(benchmarkDate.getTime())) return false;
-          return benchmarkDate.getTime() >= cutoffTimestamp;
-        } catch { return false; }
-      });
-
-      startDate = cutoffDate;
-      endDate = today; 
-    }
-    
-    
-    const sortedTimeFilteredData = [...timeFilteredData].sort((a, b) => 
-        new Date(a.date + 'T00:00:00Z').getTime() - new Date(b.date + 'T00:00:00Z').getTime()
-    );
-
-    
-    const scores = sortedTimeFilteredData.map(b => b.score);
-    const accuracies = sortedTimeFilteredData.map(b => b.accuracy);
-    const scoreStdDev = calculateStdDev(scores);
-    const accuracyStdDev = calculateStdDev(accuracies);
-
-    
-    let scoreImprovementPercent: number | null = null;
-    let accuracyImprovementPercent: number | null = null;
-
-    if (sortedTimeFilteredData.length >= 2) {
-        
-        const firstEntry = sortedTimeFilteredData[0];
-        const lastEntry = sortedTimeFilteredData[sortedTimeFilteredData.length - 1];
-
-        
-        
-        
-        
-        scoreImprovementPercent = calculateImprovement(firstEntry.score, lastEntry.score);
-        accuracyImprovementPercent = calculateImprovement(firstEntry.accuracy, lastEntry.accuracy);
-    } else if (sortedTimeFilteredData.length === 1 && chartTimePeriod !== 'all') {
-        
-        
-        
-    }
-
-    return {
-      scoreStdDev: parseFloat(scoreStdDev.toFixed(1)),
-      accuracyStdDev: parseFloat(accuracyStdDev.toFixed(1)),
-      scoreImprovementPercent: scoreImprovementPercent !== null && isFinite(scoreImprovementPercent) ? parseFloat(scoreImprovementPercent.toFixed(1)) : null,
-      accuracyImprovementPercent: accuracyImprovementPercent !== null && isFinite(accuracyImprovementPercent) ? parseFloat(accuracyImprovementPercent.toFixed(1)) : null
-    };
-
-  }, [benchmarks, selectedScenarios, chartTimePeriod]);
 
   
   const displayedBenchmarks = useMemo<BenchmarkScore[]>(() => { 
@@ -1299,7 +1216,7 @@ Please provide coaching feedback based on this data, following the structured ap
                     ))}
                     {sortedAndFilteredBenchmarks.length === 0 && (
                       <tr>
-                        {/* Adjust colspan based on hidden columns */}
+                        {}
                         <td colSpan={5} className={`text-center py-10 ${mutedTextColor} italic sm:hidden`}>
                           No benchmarks found {selectedScenarios.length > 0 ? `for selected scenarios` : ''}.
                         </td>
@@ -1346,73 +1263,6 @@ Please provide coaching feedback based on this data, following the structured ap
                   </div>
               )}
             </>
-          ) : viewMode === 'area' ? (
-            <div className="p-4 md:p-6 h-[400px]">
-              {chartFilteredBenchmarks.length > 1 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={areaChartData} margin={{ top: 5, right: 10, left: -15, bottom: 5 }}>
-                    <defs>
-                      <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={chartScoreColor} stopOpacity={0.7} />
-                        <stop offset="95%" stopColor={chartScoreColor} stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorAcc" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={chartAccColor} stopOpacity={0.6} />
-                        <stop offset="95%" stopColor={chartAccColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
-                    <XAxis
-                      dataKey="date"
-                      tickFormatter={(ts) => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      stroke={chartTextColor}
-                      fontSize={12}
-                      type="number" 
-                      domain={['dataMin', 'dataMax']} 
-                    />
-                    <YAxis yAxisId="left" stroke={chartTextColor} fontSize={12} domain={['auto', 'auto']} />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      stroke={chartTextColor}
-                      fontSize={12}
-                      domain={[0, 100]}
-                      unit="%"
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
-                        border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
-                        borderRadius: '8px',
-                        color: textColor,
-                      }}
-                      labelFormatter={(ts) =>
-                        new Date(ts).toLocaleDateString(undefined, {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                        })
-                      }
-                      formatter={(value: unknown, name: string) => {
-                        if (typeof value !== 'number' || isNaN(value)) return null;
-                        if (name === 'Score') return [value.toLocaleString(), 'Score'];
-                        if (name === 'Accuracy') return [`${value.toFixed(1)}%`, 'Accuracy'];
-                        return null; 
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px', color: chartTextColor }} />
-                    
-                    <Area type="monotone" dataKey="Score" stroke={chartScoreColor} fillOpacity={1} fill="url(#colorScore)" yAxisId="left" dot={{ r: 3, fill: chartScoreColor }} activeDot={{ r: 6, stroke: chartScoreColor }} connectNulls={false} />
-                    <Area type="monotone" dataKey="Accuracy" stroke={chartAccColor} fillOpacity={1} fill="url(#colorAcc)" yAxisId="right" unit="%" dot={{ r: 3, fill: chartAccColor }} activeDot={{ r: 6, stroke: chartAccColor }} connectNulls={false}/>
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                 <div className={`${mutedTextColor} h-full flex items-center justify-center italic`}>
-                     Need at least 2 data points {selectedScenarios.length > 0 ? `for selected scenarios (${selectedScenarios.join(', ')})` : ''} 
-                     {chartTimePeriod !== 'all' ? `in the last ${chartTimePeriod === '7d' ? 7 : 30} days` : ''} to show chart.
-                 </div>
-              )}
-            </div>
           ) : viewMode === 'spider' ? (
             <div className="p-4 md:p-6 min-h-[400px]">
               {scenarioOrOverallStats && scenarioOrOverallStats.count > 0 ? (
@@ -1834,7 +1684,7 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({
                     onClick={() => handleAddRow(selectedScenarios[0])} 
                     className={`self-start mt-2 flex items-center gap-1.5 text-xs px-2 py-1 rounded ${inputBg} border ${inputBorder} ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-${accentColor} transition-colors`}
                     title={selectedScenarios.length > 0 ? `Add another entry row for ${selectedScenarios[0]}` : 'Select a scenario first'}
-                    disabled={selectedScenarios.length === 0} // Disable if no scenario is selected
+                    disabled={selectedScenarios.length === 0} 
                   >
                       <PlusCircle size={14} /> Add Entry
                   </button>
