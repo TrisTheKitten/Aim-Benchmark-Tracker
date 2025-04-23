@@ -54,6 +54,20 @@ export async function GET() {
       }
       const scenarioName = scenarioMatch[1].trim();
 
+      // ---- Difficulty Parsing from Scenario Name ----
+      let foundDifficulty: BenchmarkScore['difficulty'] = 'Medium'; // Default
+      const lowerCaseScenario = scenarioName.toLowerCase();
+
+      if (lowerCaseScenario.includes('insane')) {
+          foundDifficulty = 'Insane';
+      } else if (lowerCaseScenario.includes('hard')) {
+          foundDifficulty = 'Hard';
+      } else if (lowerCaseScenario.includes('easy')) {
+          foundDifficulty = 'Easy';
+      }
+      console.log(`  Inferred Difficulty from scenario name \"${scenarioName}\": ${foundDifficulty}`);
+      // -------------------------------------------
+
       // Attempt to extract date - this might need refinement based on exact filename formats
       const dateMatch = file.match(/(\d{4}\.\d{2}\.\d{2})/);
       // Format as YYYY-MM-DD or use a placeholder if not found
@@ -144,7 +158,7 @@ export async function GET() {
         score: score,
         accuracy: accuracy, 
         date: date, 
-        difficulty: 'Medium', // Assign a default difficulty
+        difficulty: foundDifficulty, // Use parsed or default difficulty
         notes: `Imported from ${file}`, 
       };
       

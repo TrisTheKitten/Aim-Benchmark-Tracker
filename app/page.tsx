@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
-import { Target, TrendingUp, Calendar, Star, Zap, ChevronDown, ChevronUp, Filter, X, PlusCircle, BrainCircuit, BarChart2, List, Save, Download, RefreshCw, Sun, Moon, Trash2, Copy, Library, CheckSquare, UploadCloud, ListPlus, ListMinus, ListEnd, History } from 'lucide-react';
-import { AreaChart, Area, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Target, TrendingUp, Calendar, Star, ChevronDown, ChevronUp, Filter, X, PlusCircle, BrainCircuit, BarChart2, List, Download, RefreshCw, Sun, Moon, Trash2, Copy, Library, CheckSquare, UploadCloud, ListPlus, ListMinus, ListEnd, History, Hexagon } from 'lucide-react';
+import { AreaChart, Area, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getAiCoachRecommendation } from '../lib/ai-coach'; 
@@ -67,15 +67,18 @@ export default function AimTrackerPage() {
   const [benchmarks, setBenchmarks] = useState<BenchmarkScore[]>([]);
   const [sortKey, setSortKey] = useState<keyof BenchmarkScore | null>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [filterScenario, setFilterScenario] = useState<string>('');
+  const [selectedScenarios, setSelectedScenarios] = useState<string[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showScenarioSelector, setShowScenarioSelector] = useState(false); 
   const [newScore, setNewScore] = useState<Partial<BenchmarkScore>>({ date: new Date().toISOString().split('T')[0], difficulty: 'Medium' });
-  const [viewMode, setViewMode] = useState<'list' | 'chart'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'area' | 'spider'>('list');
   const [userGame, setUserGame] = useState('Valorant');
-  const [userSensitivity, setUserSensitivity] = useState('0.35 @ 800 DPI');
+  const [userIngameSens, setUserIngameSens] = useState<number | string>('0.3');
+  const [userDPI, setUserDPI] = useState<number | string>(800);
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiRecommendations, setAiRecommendations] = useState('Enter API key and analyze performance.');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false); // State for copy feedback
   const [theme, setTheme] = useState<Theme>('dark');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [showBulkAddModal, setShowBulkAddModal] = useState(false);
@@ -84,6 +87,8 @@ export default function AimTrackerPage() {
   const [chartTimePeriod, setChartTimePeriod] = useState<'7d' | '30d' | 'all'>('all'); 
   const [scenarioSearchTerm, setScenarioSearchTerm] = useState('');
 
+  // Define the constant used for limiting data for AI context
+  const MAX_ENTRIES_FOR_AI = 100;
   
   useEffect(() => {
     
@@ -132,6 +137,12 @@ export default function AimTrackerPage() {
     if (storedTheme === 'light' || storedTheme === 'dark') {
         setTheme(storedTheme);
     }
+    const storedGame = localStorage.getItem('aimUserGame');
+    if (storedGame) setUserGame(storedGame);
+    const storedSens = localStorage.getItem('aimUserIngameSens');
+    if (storedSens) setUserIngameSens(storedSens);
+    const storedDPI = localStorage.getItem('aimUserDPI');
+    if (storedDPI) setUserDPI(storedDPI);
 
   }, []);
 
@@ -159,6 +170,12 @@ export default function AimTrackerPage() {
     }
   }, [theme]);
 
+  useEffect(() => {
+    localStorage.setItem('aimUserGame', userGame);
+    localStorage.setItem('aimUserIngameSens', String(userIngameSens));
+    localStorage.setItem('aimUserDPI', String(userDPI));
+  }, [userGame, userIngameSens, userDPI]);
+
   
   const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
@@ -168,7 +185,9 @@ export default function AimTrackerPage() {
   
   const sortedAndFilteredBenchmarks = useMemo(() => {
     let filtered = benchmarks;
-    if (filterScenario) filtered = filtered.filter((b) => b.scenario === filterScenario);
+    if (selectedScenarios.length > 0) {
+      filtered = filtered.filter((b) => selectedScenarios.includes(b.scenario));
+    }
     if (!sortKey) return filtered;
     return [...filtered].sort((a, b) => {
       const valA = a[sortKey];
@@ -178,7 +197,7 @@ export default function AimTrackerPage() {
       if (typeof valA === 'string' && typeof valB === 'string') return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
       return 0;
     });
-  }, [benchmarks, sortKey, sortOrder, filterScenario]);
+  }, [benchmarks, sortKey, sortOrder, selectedScenarios]);
 
   
   const filteredSearchScenarios = useMemo(() => {
@@ -187,6 +206,13 @@ export default function AimTrackerPage() {
       sc.toLowerCase().includes(scenarioSearchTerm.toLowerCase())
     );
   }, [uniqueScenarios, scenarioSearchTerm]);
+
+  
+  const sortedDropdownScenarios = useMemo(() => {
+    const selected = uniqueScenarios.filter(sc => selectedScenarios.includes(sc)).sort();
+    const notSelected = uniqueScenarios.filter(sc => !selectedScenarios.includes(sc)).sort();
+    return [...selected, ...notSelected];
+  }, [uniqueScenarios, selectedScenarios]);
 
   
   const handleSort = (key: keyof BenchmarkScore) => {
@@ -268,8 +294,10 @@ export default function AimTrackerPage() {
   
   const chartFilteredBenchmarks = useMemo(() => {
     console.log(`Filtering chart data for period: ${chartTimePeriod}`);
+    const baseFiltered = sortedAndFilteredBenchmarks; 
+
     if (chartTimePeriod === 'all') {
-      return sortedAndFilteredBenchmarks;
+      return baseFiltered;
     }
 
     const today = new Date();
@@ -282,7 +310,7 @@ export default function AimTrackerPage() {
 
     console.log(`Cutoff date: ${cutoffDate.toISOString()}, Timestamp: ${cutoffTimestamp}`);
 
-    return sortedAndFilteredBenchmarks.filter(b => {
+    return baseFiltered.filter(b => {
         try {
             
             if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date)) {
@@ -308,18 +336,84 @@ export default function AimTrackerPage() {
             return false;
         }
     });
-  }, [sortedAndFilteredBenchmarks, chartTimePeriod]);
+  }, [sortedAndFilteredBenchmarks, chartTimePeriod]); 
 
   
-  const chartData = useMemo(() => {
+  const areaChartData = useMemo(() => {
     return chartFilteredBenchmarks
-      .map((b) => ({ 
-          date: new Date(b.date + 'T00:00:00').getTime(), 
+      .map((b) => ({
+          date: new Date(b.date + 'T00:00:00').getTime(),
           Score: b.score,
           Accuracy: b.accuracy
       }))
       .sort((a: {date: number}, b: {date: number}) => a.date - b.date);
-  }, [chartFilteredBenchmarks]); 
+  }, [chartFilteredBenchmarks]);
+
+  
+  const scenarioOrOverallStats = useMemo(() => {
+    const dataSet = selectedScenarios.length > 0 
+      ? benchmarks.filter(b => selectedScenarios.includes(b.scenario)) 
+      : benchmarks;
+
+    if (dataSet.length === 0) {
+      return {
+        scenarioName: selectedScenarios.length > 0 ? selectedScenarios.join(', ') : 'Overall',
+        count: 0,
+        avgScore: 0, bestScore: 0, lowestScore: 0,
+        avgAccuracy: 0, bestAccuracy: 0, lowestAccuracy: 0,
+      };
+    }
+
+    let totalScore = 0;
+    let totalAccuracy = 0;
+    let minScore = dataSet[0].score;
+    let maxScore = dataSet[0].score;
+    let minAccuracy = dataSet[0].accuracy;
+    let maxAccuracy = dataSet[0].accuracy;
+
+    dataSet.forEach(b => {
+      totalScore += b.score;
+      totalAccuracy += b.accuracy;
+      if (b.score < minScore) minScore = b.score;
+      if (b.score > maxScore) maxScore = b.score;
+      if (b.accuracy < minAccuracy) minAccuracy = b.accuracy;
+      if (b.accuracy > maxAccuracy) maxAccuracy = b.accuracy;
+    });
+
+    const count = dataSet.length;
+    return {
+      scenarioName: selectedScenarios.length > 0 ? selectedScenarios.join(', ') : 'Overall',
+      count: count,
+      avgScore: Math.round(totalScore / count),
+      bestScore: maxScore,
+      lowestScore: minScore,
+      avgAccuracy: parseFloat((totalAccuracy / count).toFixed(1)),
+      bestAccuracy: maxAccuracy,
+      lowestAccuracy: minAccuracy,
+    };
+  }, [benchmarks, selectedScenarios]);
+
+  
+  const scoreSpiderData = useMemo(() => {
+    if (!scenarioOrOverallStats || scenarioOrOverallStats.count === 0) return [];
+    const { avgScore, bestScore, lowestScore } = scenarioOrOverallStats;
+    return [
+      { stat: 'Avg Score', value: avgScore },
+      { stat: 'Best Score', value: bestScore },
+      { stat: 'Lowest Score', value: lowestScore },
+    ];
+  }, [scenarioOrOverallStats]);
+
+  
+  const accuracySpiderData = useMemo(() => {
+     if (!scenarioOrOverallStats || scenarioOrOverallStats.count === 0) return [];
+    const { avgAccuracy, bestAccuracy, lowestAccuracy } = scenarioOrOverallStats;
+    return [
+      { stat: 'Avg Acc', value: avgAccuracy }, 
+      { stat: 'Best Acc', value: bestAccuracy },
+      { stat: 'Lowest Acc', value: lowestAccuracy },
+    ];
+  }, [scenarioOrOverallStats]);
 
   
   const handleAiAnalysis = async () => { 
@@ -331,33 +425,29 @@ export default function AimTrackerPage() {
     
     const dataToSend = sortedAndFilteredBenchmarks;
     const MAX_ENTRIES_FOR_AI = 100; 
-
-    
-    
     const relevantBenchmarks = dataToSend.slice(0, MAX_ENTRIES_FOR_AI);
-        
-    let analysisScope = filterScenario ? `your ${filterScenario} performance` : 'your overall performance';
-    
+    let analysisScope = selectedScenarios.length > 0 
+        ? `your ${selectedScenarios.join(', ')} performance` 
+        : 'your overall performance';
     if (relevantBenchmarks.length > 0) {
         analysisScope += ` (using latest ${relevantBenchmarks.length} entries)`;
     }
     setAiRecommendations(`Analyzing ${analysisScope}...`);
 
     if (relevantBenchmarks.length === 0) {
-        
-        setAiRecommendations(`No relevant data found${filterScenario ? ` for ${filterScenario}` : ''} to analyze.`);
+        setAiRecommendations(`No relevant data found${selectedScenarios.length > 0 ? ` for selected scenarios` : ''} to analyze.`);
         setIsAnalyzing(false);
         return;
     }
     
     try {
-        
-        
+        const sensitivityString = `${userIngameSens} @ ${userDPI} DPI`;
         const recommendation = await getAiCoachRecommendation({
             apiKey: aiApiKey,
             userGame: userGame,
-            userSensitivity: userSensitivity,
-            filterScenario: filterScenario, 
+            userSensitivity: sensitivityString, 
+            
+            filterScenario: selectedScenarios.join(', ') || '', 
             currentStats: currentStats, 
             recentBenchmarks: relevantBenchmarks 
         });
@@ -368,6 +458,89 @@ export default function AimTrackerPage() {
     } finally {
         setIsAnalyzing(false);
     }
+  };
+
+  // Handler for copying the prompt
+  const handleCopyPrompt = () => {
+    const systemPrompt = `You are an expert FPS aim coach analyzing aim trainer benchmark data. Your goal is to provide insightful, actionable feedback based ONLY on the provided data using the gpt-4o-mini model. 
+
+Format your response using Markdown:
+- Dont assume all scenarios are the same.(There are different categories of scenarios such as flicking, tracking, target switching etc and different focus of the training methods such as speed, precision, consistency etc) Each scenario has different characteristics and different weaknesses. 
+- Each scenario require different approach on technique and different training methods.
+- Dont assume the user is using the same technique for all scenarios.
+- Use headings (e.g, Analysis) for each section.
+- Use bulletpoints for explanations. Ensure clear separation between sections by using a blank line (double newline) in the Markdown source.
+- Use bullet points for suggestions or specific observations.
+- Dont include conclusions or generic advice.
+
+Follow this structure:
+
+Analysis :  (2-3 sentences)
+
+- Analyze solely on the weaknesses of the user based on the provided recent benchmark list and try to find the biggest area for improvement.
+- Analyze the Score/Accuracy Relationship: Interpret what the average score and accuracy imply (e.g., fast but imprecise, slow but precise, good balance).
+- Base these points strictly on the provided recent benchmark list.
+- Look at the \`Recent Benchmark Scores\` list. Comment on patterns in specific scenarios 
+- Dont include conclusions or generic advice.
+(separate this line) " ------------------------- " 
+Game-based Suggestions : (1-2 sentences)
+- Briefly suggest how the observed patterns might translate to performance (focus on weaknesses) in the specified game.
+- Focus on the biggest area for improvement (e.g., speed, precision under pressure, consistency).
+- Provide 1-2 specific, constructive suggestions for in game improvement as bullet points. (dont be generic be specific)
+- Dont include conclusions or generic advice.
+(separate this line) " ------------------------- " 
+Overall Recommendations and Tips : (1-2 sentences)
+- Provide 1-2 specific, constructive suggestions(focus on weaknesses) for improvement as bullet points.(dont be generic be specific)
+- Focus on whether to prioritize speed, precision, or consistency or other aspects based on the analysis.
+- Suggest specific scenarios to focus on based on the analysis.(be specific)
+- Provide 1-2 specific, constructive suggestions(training methods, areas of focus etc based on weaknesses) for improvement as bullet points.
+- Dont include conclusions or generic advice.
+(separate this line) " ------------------------- " 
+Training Plan (next 7 days)
+- Primary drill: <scenario> — focus on <speed/precision/consistency>.  
+- Secondary drill: <scenario> — …  
+- Micro‑habit: <≤10 words>.
+(separate this line) " ------------------------- " 
+Dont include generic advice or commendations just focus on the weaknesses and provide suggestions for improvement.
+Keep the feedback concise, encouraging, and easy to understand. Address the user directly.`;
+
+    const dataToSend = sortedAndFilteredBenchmarks;
+    const relevantBenchmarks = dataToSend.slice(0, MAX_ENTRIES_FOR_AI);
+    const sensitivityString = `${userIngameSens} @ ${userDPI} DPI`;
+
+    const userPrompt = `
+Analyze my recent aim training performance:
+
+Game I'm training for: ${userGame}
+My Sensitivity: ${sensitivityString}
+Current Scenario Filter: ${selectedScenarios.join(', ') || 'All Scenarios'}
+
+Overall Stats (${selectedScenarios.join(', ') || 'All Scenarios'}):
+- Average Score: ${currentStats.avgScore.toLocaleString()}
+- Average Accuracy: ${currentStats.avgAcc}%
+- Best Score: ${currentStats.bestScore.toLocaleString()}
+- Total Entries Analyzed (within filter): ${currentStats.count}
+
+Recent Benchmark Scores (up to ${MAX_ENTRIES_FOR_AI} most recent within filter):
+${relevantBenchmarks.length > 0
+  ? relevantBenchmarks.map(b =>
+      `- ${b.date} | ${b.scenario} | Score: ${b.score.toLocaleString()} | Acc: ${b.accuracy}% | Diff: ${b.difficulty}${b.notes ? ` | Notes: \"${b.notes}\"` : ''}`
+    ).join('\\n') // Ensure newline characters are correctly represented in the final string
+  : 'No recent benchmark data available for this filter.'
+}
+
+Please provide coaching feedback based on this data, following the structured approach outlined.
+`;
+
+    const fullPrompt = `--- SYSTEM PROMPT ---\n\n${systemPrompt}\n\n--- USER PROMPT ---\n${userPrompt}`; // Remove unnecessary extra backslashes
+
+    navigator.clipboard.writeText(fullPrompt).then(() => {
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2000); // Reset after 2 seconds
+    }).catch(err => {
+      console.error('Failed to copy prompt: ', err);
+      alert('Failed to copy prompt to clipboard.');
+    });
   };
 
   
@@ -390,17 +563,19 @@ export default function AimTrackerPage() {
     doc.setFontSize(12);
     doc.setTextColor(0, 0, 0);
     doc.text(`Game: ${userGame}`, margin, yPos);
-    doc.text(`Sensitivity: ${userSensitivity}`, margin + 70, yPos);
+    
+    const sensitivityString = `${userIngameSens} @ ${userDPI} DPI`;
+    doc.text(`Sensitivity: ${sensitivityString}`, margin + 70, yPos);
     yPos += 10;
 
     doc.setTextColor(0, 0, 0);
-    doc.text(`Scenario Filter: ${filterScenario || 'All'}`, margin, yPos);
+    doc.text(`Scenario Filter: ${selectedScenarios.length > 0 ? selectedScenarios.join(', ') : 'All'}`, margin, yPos);
     yPos += 15;
 
     
     doc.setFontSize(14);
     doc.setTextColor(161, 224, 211); 
-    doc.text(`Stats (${filterScenario || 'All Scenarios'})`, margin, yPos);
+    doc.text(`Stats (${selectedScenarios.length > 0 ? 'Selected Scenarios' : 'All Scenarios'})`, margin, yPos);
     yPos += 8;
 
     doc.setFontSize(11);
@@ -429,7 +604,7 @@ export default function AimTrackerPage() {
     
     doc.setFontSize(14);
     doc.setTextColor(161, 224, 211); 
-    doc.text(`Benchmark History (${filterScenario || 'All'})`, margin, yPos);
+    doc.text(`Benchmark History (${selectedScenarios.length > 0 ? 'Selected' : 'All'})`, margin, yPos);
     yPos += 8;
 
     
@@ -443,7 +618,7 @@ export default function AimTrackerPage() {
       alternateRowStyles: { fillColor: [245, 245, 245] },
     });
 
-    doc.save(`aim_benchmark_report_${filterScenario || 'all'}_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`aimplified_report_${selectedScenarios.length > 0 ? 'selected' : 'all'}_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   
@@ -536,35 +711,45 @@ export default function AimTrackerPage() {
 
       let addedCount = 0;
       setBenchmarks(prevBenchmarks => {
-        const existingEntries = new Set(
-          prevBenchmarks.map(b => `${b.scenario}-${b.date}-${b.score}`)
-        );
-        
-        const newEntries = importedScores.filter((imported: BenchmarkScore) => {
-          const key = `${imported.scenario}-${imported.date}-${imported.score}`;
-          return !existingEntries.has(key);
-        });
+        // Remove the duplicate checking logic
+        // const existingEntries = new Set(
+        //   prevBenchmarks.map(b => `${b.scenario}-${b.date}-${b.score}`)
+        // );
+        // 
+        // const newEntries = importedScores.filter((imported: BenchmarkScore) => {
+        //   const key = `${imported.scenario}-${imported.date}-${imported.score}`;
+        //   return !existingEntries.has(key);
+        // });
+        // 
+        // addedCount = newEntries.length;
+        // 
+        // if (addedCount > 0) {
+        //   console.log(`Adding ${addedCount} new unique scores.`);
+        //   return [...prevBenchmarks, ...newEntries];
+        // } else {
+        //   console.log('No new unique scores found to import.');
+        //   return prevBenchmarks; 
+        // }
 
-        addedCount = newEntries.length;
-
+        // Simply concatenate the imported scores
+        addedCount = importedScores.length;
         if (addedCount > 0) {
-          console.log(`Adding ${addedCount} new unique scores.`);
-          return [...prevBenchmarks, ...newEntries];
+          console.log(`Importing ${addedCount} scores (including potential duplicates).`);
+          return [...prevBenchmarks, ...importedScores];
         } else {
-          console.log('No new unique scores found to import.');
-          return prevBenchmarks; 
+          console.log('No scores found in the files to import.');
+          return prevBenchmarks;
         }
       });
 
       
       setTimeout(() => {
           if (addedCount > 0) {
-              alert(`Successfully imported ${addedCount} new scores from KovaaK&apos;s files.`);
-          } else if (importedScores.length > 0){
-              alert('No new unique scores found in the KovaaK&apos;s files. All entries already exist.');
+              alert(`Successfully imported ${addedCount} scores from KovaaK&apos;s files (duplicates included).`);
           } else {
               alert('No scores found in the KovaaK&apos;s files directory or files were unparseable.');
           }
+          // Removed the message for 'no new unique scores' as duplicates are now allowed
       }, 100); 
 
     } catch (error) {
@@ -593,113 +778,218 @@ export default function AimTrackerPage() {
   };
 
   
-  const displayedBenchmarks = useMemo(() => {
-      
-      if (displayLimit >= sortedAndFilteredBenchmarks.length) {
-          return sortedAndFilteredBenchmarks;
-      }
-      return sortedAndFilteredBenchmarks.slice(0, displayLimit);
+  const handleScenarioSelectionChange = (scenario: string, isSelected: boolean) => {
+    setSelectedScenarios(prev => 
+      isSelected 
+        ? [...prev, scenario] 
+        : prev.filter(s => s !== scenario) 
+    );
+    setShowScenarioSelector(false); 
+  };
+
+  
+
+  
+  function calculateStdDev(data: number[]): number {
+    if (data.length < 2) return 0;
+    const mean = data.reduce((acc, val) => acc + val, 0) / data.length;
+    const variance = data.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / data.length;
+    return Math.sqrt(variance);
+  }
+
+  
+  function calculateImprovement(startValue: number, endValue: number): number {
+    if (startValue === 0 && endValue === 0) return 0;
+    if (startValue === 0) return Infinity; 
+    return ((endValue - startValue) / startValue) * 100;
+  }
+
+  
+  type PeriodStats = {
+    scoreStdDev: number;
+    accuracyStdDev: number;
+    scoreImprovementPercent: number | null; 
+    accuracyImprovementPercent: number | null; 
+  };
+
+  
+  const periodStats = useMemo<PeriodStats>(() => {
+    console.log(`Calculating period stats for: ${chartTimePeriod}, Scenarios: ${selectedScenarios.join(', ') || 'All'}`);
+    
+    
+    const scenarioFilteredData = selectedScenarios.length > 0
+      ? benchmarks.filter(b => selectedScenarios.includes(b.scenario))
+      : benchmarks;
+
+    if (scenarioFilteredData.length === 0) {
+      return { scoreStdDev: 0, accuracyStdDev: 0, scoreImprovementPercent: null, accuracyImprovementPercent: null };
+    }
+
+    
+    let timeFilteredData = scenarioFilteredData;
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    if (chartTimePeriod !== 'all') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysToSubtract = chartTimePeriod === '7d' ? 7 : 30;
+      const cutoffDate = new Date(today);
+      cutoffDate.setDate(today.getDate() - daysToSubtract);
+      const cutoffTimestamp = cutoffDate.getTime();
+
+      timeFilteredData = scenarioFilteredData.filter(b => {
+        try {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date)) return false;
+          const benchmarkDate = new Date(b.date + 'T00:00:00Z');
+          if (isNaN(benchmarkDate.getTime())) return false;
+          return benchmarkDate.getTime() >= cutoffTimestamp;
+        } catch { return false; }
+      });
+
+      startDate = cutoffDate;
+      endDate = today; 
+    }
+    
+    
+    const sortedTimeFilteredData = [...timeFilteredData].sort((a, b) => 
+        new Date(a.date + 'T00:00:00Z').getTime() - new Date(b.date + 'T00:00:00Z').getTime()
+    );
+
+    
+    const scores = sortedTimeFilteredData.map(b => b.score);
+    const accuracies = sortedTimeFilteredData.map(b => b.accuracy);
+    const scoreStdDev = calculateStdDev(scores);
+    const accuracyStdDev = calculateStdDev(accuracies);
+
+    
+    let scoreImprovementPercent: number | null = null;
+    let accuracyImprovementPercent: number | null = null;
+
+    if (sortedTimeFilteredData.length >= 2) {
+        
+        const firstEntry = sortedTimeFilteredData[0];
+        const lastEntry = sortedTimeFilteredData[sortedTimeFilteredData.length - 1];
+
+        
+        
+        
+        
+        scoreImprovementPercent = calculateImprovement(firstEntry.score, lastEntry.score);
+        accuracyImprovementPercent = calculateImprovement(firstEntry.accuracy, lastEntry.accuracy);
+    } else if (sortedTimeFilteredData.length === 1 && chartTimePeriod !== 'all') {
+        
+        
+        
+    }
+
+    return {
+      scoreStdDev: parseFloat(scoreStdDev.toFixed(1)),
+      accuracyStdDev: parseFloat(accuracyStdDev.toFixed(1)),
+      scoreImprovementPercent: scoreImprovementPercent !== null && isFinite(scoreImprovementPercent) ? parseFloat(scoreImprovementPercent.toFixed(1)) : null,
+      accuracyImprovementPercent: accuracyImprovementPercent !== null && isFinite(accuracyImprovementPercent) ? parseFloat(accuracyImprovementPercent.toFixed(1)) : null
+    };
+
+  }, [benchmarks, selectedScenarios, chartTimePeriod]);
+
+  
+  const displayedBenchmarks = useMemo<BenchmarkScore[]>(() => { 
+    if (displayLimit >= sortedAndFilteredBenchmarks.length) {
+      return sortedAndFilteredBenchmarks;
+    }
+    return sortedAndFilteredBenchmarks.slice(0, displayLimit);
   }, [sortedAndFilteredBenchmarks, displayLimit]);
 
+  
+  useEffect(() => {
+    if (viewMode === 'area') {
+      console.log("Selected Scenarios:", selectedScenarios);
+      console.log("Chart Filtered Benchmarks (Input):", chartFilteredBenchmarks);
+      console.log("Area Chart Data (Output):", areaChartData);
+    }
+  }, [selectedScenarios, chartFilteredBenchmarks, areaChartData, viewMode]);
+
+  
   return (
     <div className={`${theme} font-sans transition-colors duration-300`}>
-      <div className={`${bgColor} ${textColor} min-h-screen p-4 md:p-8`}> 
+      <div className={`${bgColor} ${textColor} min-h-screen p-4 md:p-8`}>
         <header className="mb-6 md:mb-10 flex flex-wrap justify-between items-start gap-4">
           <div>
             <h1 className={`text-3xl md:text-4xl font-bold ${headerColor} flex items-center gap-3 mb-2`}>
-              <Target size={36} /> Aim Benchmark Tracker
+              <Target size={36} /> Aimplified
             </h1>
-            <p className={`${mutedTextColor} text-sm ml-1`}>Game: <input type="text" value={userGame} onChange={(e) => setUserGame(e.target.value)} placeholder="Game" className={`${inputBg} ${inputBorder} text-xs p-1 rounded border w-20 focus:outline-none focus:ring-1 focus:ring-${accentColor} mx-1`} /> Sensitivity: <input type="text" value={userSensitivity} onChange={(e) => setUserSensitivity(e.target.value)} placeholder="Sensitivity" className={`${inputBg} ${inputBorder} text-xs p-1 rounded border w-28 focus:outline-none focus:ring-1 focus:ring-${accentColor} ml-1`} /></p>
+            {}
+            <p className={`${mutedTextColor} text-sm ml-1 flex items-center flex-wrap`}>
+              <span className="mr-2">Game: <input type="text" value={userGame} onChange={(e) => setUserGame(e.target.value)} placeholder="Game" className={`${inputBg} ${inputBorder} text-xs p-1 rounded border w-20 focus:outline-none focus:ring-1 focus:ring-${accentColor} mx-1`} /></span>
+              <span className="mr-2">In-game Sens: <input type="number" value={userIngameSens} onChange={(e) => setUserIngameSens(e.target.value)} placeholder="Sens" step="0.01" className={`${inputBg} ${inputBorder} text-xs p-1 rounded border w-16 focus:outline-none focus:ring-1 focus:ring-${accentColor} mx-1`} /></span>
+              <span>DPI: <input type="number" value={userDPI} onChange={(e) => setUserDPI(e.target.value)} placeholder="DPI" step="50" className={`${inputBg} ${inputBorder} text-xs p-1 rounded border w-16 focus:outline-none focus:ring-1 focus:ring-${accentColor} mx-1`} /></span>
+            </p>
           </div>
-          <div className="flex gap-3 items-center">
-            <button onClick={handleExportPdf} className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md h-10 mt-1`}>
+          <div className="flex flex-col sm:flex-row gap-3 items-center">
+            <button onClick={handleExportPdf} className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md h-10 mt-1`} title="Download a PDF report of the current view (filtered benchmarks, stats, and AI analysis)">
               <Download size={16} /> Export PDF
             </button>
-            <button 
+            <button
               onClick={handleClearAll}
-              className={`flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md h-10 mt-1 disabled:opacity-50 disabled:cursor-not-allowed`}
-              disabled={benchmarks.length === 0} 
+              className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md h-10 mt-1 disabled:opacity-50 disabled:cursor-not-allowed`}
+              disabled={benchmarks.length === 0}
               title="Delete all benchmark history"
             >
               <Trash2 size={16} /> Clear History
             </button>
-            <button onClick={toggleTheme} className={`p-2 rounded-lg ${cardBg} border ${cardBorder} ${mutedTextColor} hover:text-${accentColor} transition-colors h-10 mt-1`}>
+            <button onClick={toggleTheme} className={`p-2 rounded-lg ${cardBg} border ${cardBorder} ${mutedTextColor} hover:text-${accentColor} transition-colors h-10 mt-1 w-full sm:w-auto flex justify-center`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
           </div>
         </header>
 
-        {}
         <section className="mb-6">
           <h2 className={`text-sm font-semibold ${mutedTextColor} mb-2 flex items-center gap-1.5`}>
             <Star size={16} className="text-yellow-500" /> Favorites (Quick Add)
           </h2>
-          <div className="flex flex-wrap gap-2 min-h-[36px]"> {}
+          <div className="flex flex-wrap gap-2 min-h-[36px]">
             {favorites.length > 0 ? (
               favorites.map(favScenario => (
                 <div key={favScenario} className={`relative group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${cardBg} border ${cardBorder} ${textColor} hover:border-${accentColor} hover:text-${accentColor} transition-colors shadow-sm cursor-pointer`}>
                   <span onClick={() => handleQuickAdd(favScenario)} title={`Quick add ${favScenario}`}>{favScenario}</span>
-                  {}
-                  <button 
+                  <button
                     onClick={() => handleRemoveFavorite(favScenario)}
                     className={`absolute -top-1.5 -right-1.5 p-0.5 bg-red-600 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity`}
                     title={`Remove ${favScenario} from favorites`}
                   >
-                      <X size={10} />
+                    <X size={10} />
                   </button>
                 </div>
               ))
             ) : (
-              
               <p className={`text-xs italic ${mutedTextColor} flex items-center h-full`}>No favorites added yet. Use the star icon next to the filter.</p>
             )}
           </div>
         </section>
 
-        <section className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <section className="mb-6 grid grid-cols-2 md:grid-cols-3 gap-4">
           {[
             { icon: TrendingUp, label: 'Avg Score', value: currentStats.avgScore.toLocaleString() },
-            { icon: Zap, label: 'Avg Accuracy', value: `${currentStats.avgAcc}%` },
-            { icon: Star, label: 'Best Score', value: currentStats.bestScore.toLocaleString() },
-            { icon: Calendar, label: 'Entries', value: currentStats.count },
+            { icon: Target, label: 'Avg Accuracy', value: `${currentStats.avgAcc}%` },
+            { icon: Calendar, label: 'Entries', value: String(currentStats.count) } 
           ].map((stat) => (
             <div key={stat.label} className={`${cardBg} p-4 rounded-xl border ${cardBorder} shadow-lg flex flex-col justify-between`}>
               <h3 className={`text-xs font-medium ${mutedTextColor} mb-1 flex items-center gap-1.5`}>
-                <stat.icon size={14} /> {stat.label} <span className="text-gray-500 dark:text-gray-600 text-[10px]">({filterScenario || 'All'})</span>
+                <stat.icon size={14} /> {stat.label} <span className="text-gray-500 dark:text-gray-600 text-[10px]">({selectedScenarios.length > 0 ? 'Selected' : 'All'})</span>
               </h3>
               <p className={`text-xl md:text-2xl font-bold ${textColor} truncate`}>{stat.value}</p>
             </div>
           ))}
         </section>
 
-        <div className="mb-6 flex justify-end gap-3"> {}
-          {}
-          <button
-            onClick={handleImportKovaaksStats}
-            disabled={isImporting}
-            className={`flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md disabled:opacity-50 disabled:cursor-wait`}
-          >
-            {isImporting ? (
-                <>
-                    <RefreshCw size={18} className="animate-spin" /> Importing...
-                </>
-            ) : (
-                <>
-                    <UploadCloud size={18} /> Import KovaaK&apos;s
-                </>
-            )}
+        <div className="mb-6 flex flex-col sm:flex-row justify-end gap-3">
+          <button onClick={handleImportKovaaksStats} disabled={isImporting} className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md disabled:opacity-50 disabled:cursor-wait`} title="Import benchmark scores from local KovaaK's stats files (includes duplicates)">
+            {isImporting ? (<><RefreshCw size={18} className="animate-spin" /> Importing...</>) : (<><UploadCloud size={18} /> Import KovaaK&apos;s</>)}
           </button>
-          {}
-          <button
-            onClick={handleOpenBulkAdd}
-            className={`flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md`}
-          >
+          <button onClick={handleOpenBulkAdd} className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md`} title="Open a modal to add multiple benchmark scores at once">
             <Library size={18} /> Bulk Add
           </button>
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className={`flex items-center gap-2 bg-${accentColor} hover:bg-${theme === 'dark' ? 'teal-500' : 'teal-700'} ${theme === 'dark' ? 'text-white' : 'text-gray-900'} font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md`}
-          >
+          <button onClick={() => setShowAddForm(!showAddForm)} className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-${accentColor} hover:bg-${theme === 'dark' ? 'teal-500' : 'teal-700'} ${theme === 'dark' ? 'text-white' : 'text-gray-900'} font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md`} title={showAddForm ? 'Hide the form for adding a single score' : 'Show the form to add a single new score'}>
             {showAddForm ? <X size={18} /> : <PlusCircle size={18} />} {showAddForm ? 'Cancel Entry' : 'Add New Score'}
           </button>
         </div>
@@ -710,10 +1000,7 @@ export default function AimTrackerPage() {
             className={`${cardBg} rounded-lg border ${cardBorder} grid grid-cols-1 md:grid-cols-3 gap-4 shadow-lg mb-6 p-4`}
           >
             <h3 className={`col-span-full text-lg font-semibold mb-2 ${headerColor}`}>Log New Benchmark</h3>
-            
-            {}
             {[ 
-              
               { label: 'Scenario', key: 'scenario', type: 'text', list: 'scenarios' },
               { label: 'Difficulty', key: 'difficulty', type: 'select' },
               { label: 'Score', key: 'score', type: 'number' },
@@ -731,9 +1018,7 @@ export default function AimTrackerPage() {
                     className={`w-full ${inputBg} ${inputBorder} p-2 rounded border text-sm focus:outline-none focus:ring-1 focus:ring-${accentColor}`}
                   >
                     {['Easy', 'Medium', 'Hard', 'Insane'].map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
+                      <option key={d} value={d}>{d}</option>
                     ))}
                   </select>
                 ) : (
@@ -746,27 +1031,12 @@ export default function AimTrackerPage() {
                       const { value } = e.target;
                       const updatedScore = {
                         ...newScore,
-                        [f.key]:
-                          f.type === 'number'
-                            ? f.step
-                              ? parseFloat(value) || 0 
-                              : parseInt(value) || 0   
-                            : value,
+                        [f.key]: f.type === 'number' ? (f.step ? parseFloat(value) || 0 : parseInt(value) || 0) : value,
                       };
-
-                      
                       if (f.key === 'scenario') {
-                        const latestEntry = benchmarks
-                          .slice() 
-                          .reverse() 
-                          .find(b => b.scenario.toLowerCase() === value.toLowerCase());
-                        
-                        if (latestEntry) {
-                          updatedScore.difficulty = latestEntry.difficulty;
-                        }
-                        
+                        const latestEntry = benchmarks.slice().reverse().find(b => b.scenario.toLowerCase() === value.toLowerCase());
+                        if (latestEntry) { updatedScore.difficulty = latestEntry.difficulty; }
                       }
-
                       setNewScore(updatedScore);
                     }}
                     required={f.key !== 'notes'}
@@ -779,30 +1049,35 @@ export default function AimTrackerPage() {
             ))}
             <div className="md:col-start-3 flex justify-end items-end gap-2">
               <button
-                type="submit"
+                type="submit" 
                 className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md h-10"
+                title="Save the new benchmark score entered above"
               >
-                <Save size={18} /> Save Score
+                 {}
+                 <CheckSquare size={18} /> Save Score 
               </button>
             </div>
           </form>
         )}
 
         <main className={`${cardBg} rounded-xl shadow-xl overflow-hidden border ${cardBorder} mb-8`}>
-          <div className={`p-4 md:p-5 border-b ${cardBorder} flex flex-wrap justify-between items-center gap-4`}>
-            <div className="flex items-center gap-2">
+          <div className={`p-4 md:p-5 border-b ${cardBorder} flex flex-col lg:flex-row justify-between items-center gap-4`}>
+            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
               <Filter size={18} className={`${mutedTextColor}`} />
-              <div className="relative">
+              <div className="relative grow sm:grow-0">
                 <input
                   type="text"
                   value={scenarioSearchTerm}
                   onChange={(e) => setScenarioSearchTerm(e.target.value)}
                   placeholder="Search scenarios"
-                  className={`${inputBg} ${inputBorder} rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-${accentColor} max-w-[150px] md:max-w-xs`}
+                  className={`${inputBg} ${inputBorder} rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-${accentColor} w-full sm:max-w-[150px] md:max-w-xs`}
                 />
                 {scenarioSearchTerm && (
                   <button
-                    onClick={() => setScenarioSearchTerm('')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setScenarioSearchTerm('');
+                    }}
                     className={`absolute top-1/2 right-2 transform -translate-y-1/2 p-1.5 ${theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-gray-200 hover:bg-gray-300'} rounded-md`}
                     title="Clear search"
                   >
@@ -814,9 +1089,13 @@ export default function AimTrackerPage() {
                     {filteredSearchScenarios.map((sc) => (
                       <li
                         key={sc}
-                        onClick={() => {
-                          setFilterScenario(sc);
-                          setScenarioSearchTerm('');
+                        onClick={(e) => {
+                          e.preventDefault();
+                          
+                          if (!selectedScenarios.includes(sc)) {
+                            setSelectedScenarios(prev => [...prev, sc]);
+                          }
+                          setScenarioSearchTerm(''); 
                         }}
                         className={`px-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${textColor}`}
                       >
@@ -826,91 +1105,112 @@ export default function AimTrackerPage() {
                   </ul>
                 )}
               </div>
-              <select
-                value={filterScenario}
-                onChange={(e) => setFilterScenario(e.target.value)}
-                className={`${inputBg} ${inputBorder} rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-${accentColor} max-w-[150px] md:max-w-xs`}
-              >
-                <option value="">All Scenarios</option>
-                {uniqueScenarios.map((sc) => (
-                  <option key={sc} value={sc}>
-                    {sc}
-                  </option>
-                ))}
-              </select>
-              {}
-              {filterScenario && (
-                <button
-                  onClick={() => setFilterScenario('')}
-                  className={`p-1.5 ${theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-gray-200 hover:bg-gray-300'} rounded-md`}
-                  title="Clear filter"
+              <div className="relative grow sm:grow-0">
+                <button 
+                  onClick={() => setShowScenarioSelector(!showScenarioSelector)} 
+                  className={`${inputBg} ${inputBorder} rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-${accentColor} flex items-center gap-1 min-w-[150px] justify-between w-full`}
+                  title="Open/close dropdown to select or deselect scenarios for filtering"
                 >
-                  <X size={16} />
+                  <span>{selectedScenarios.length === 0 ? 'All Scenarios' : selectedScenarios.length === 1 ? selectedScenarios[0] : `${selectedScenarios.length} Scenarios Selected`}</span>
+                  {showScenarioSelector ? <ChevronUp size={16} /> : <ChevronDown size={16} />} 
                 </button>
-              )}
-            </div>
-            <div className="flex items-center gap-4">
                 {}
-                {viewMode === 'chart' && (
-                    <div className="flex items-center gap-2 border-r border-gray-600 dark:border-gray-500 pr-4">
+                {showScenarioSelector && (
+                  <div className={`absolute z-20 mt-1 w-64 ${cardBg} border ${cardBorder} rounded-md shadow-lg max-h-72 overflow-y-auto`}>
+                    <ul className="p-2 space-y-1">
+                      {}
+                      {sortedDropdownScenarios.map((sc) => (
+                        <li key={sc}>
+                          <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600`}>
+                            <input 
+                              type="checkbox"
+                              checked={selectedScenarios.includes(sc)}
+                              onChange={(e) => handleScenarioSelectionChange(sc, e.target.checked)}
+                              className={`form-checkbox h-4 w-4 text-${accentColor} bg-${inputBg} border-${inputBorder} rounded focus:ring-${accentColor}`}
+                            />
+                            <span className="text-sm">{sc}</span>
+                          </label>
+                        </li>
+                      ))}
+                      {uniqueScenarios.length === 0 && (
+                        <li className={`px-2 py-1 text-xs italic ${mutedTextColor}`}>No scenarios logged yet.</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-4 w-full lg:w-auto justify-center lg:justify-end">
+                {viewMode === 'area' && (
+                    <div className={`flex items-center gap-2 border-r-0 lg:border-r ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'} lg:dark:border-gray-500 pr-0 lg:pr-4 mb-2 lg:mb-0 w-full justify-center`}>
                          <History size={16} className={`${mutedTextColor}`} />
                          {(['7d', '30d', 'all'] as const).map(period => (
-                            <button 
-                                key={period}
-                                onClick={() => setChartTimePeriod(period)}
-                                className={`px-2 py-0.5 rounded text-xs transition-colors ${ 
-                                    chartTimePeriod === period 
-                                    ? `bg-${accentColor} text-white shadow-sm` 
-                                    : `${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} ${theme === 'dark' ? mutedTextColor : 'text-gray-800'}`
-                                }`}
+                            <button key={period} onClick={(e) => {
+                              e.preventDefault();
+                              setChartTimePeriod(period);
+                            }} className={`px-2 py-0.5 rounded text-xs transition-colors ${ chartTimePeriod === period ? `bg-${accentColor} text-white shadow-sm` : `${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} ${theme === 'dark' ? mutedTextColor : 'text-gray-800'}` }`}
+                               title={`Filter charts and period stats to show data from the last ${period === '7d' ? '7 days' : period === '30d' ? '30 days' : 'all time'}`}
                             >
                                 {period === '7d' ? '7 Days' : period === '30d' ? '30 Days' : 'All Time'}
                             </button>
                          ))}
                     </div>
                 )}
-
-                {} 
-                <div className={`flex items-center gap-1 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} p-1 rounded-lg`}>
-                    <button
-                        onClick={() => setViewMode('list')}
-                        className={`px-3 py-1 rounded-md text-sm flex items-center gap-1 ${ 
-                        viewMode === 'list' ? `bg-${accentColor} text-white shadow` : `${theme === 'dark' ? mutedTextColor : 'text-gray-800'} hover:text-${theme === 'dark' ? 'gray-100' : 'gray-900'} ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-300'}`
-                        }`}
+                <div className={`flex items-center p-0.5 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} w-full sm:w-auto justify-center`}>
+                    <button onClick={(e) => {
+                      e.preventDefault();
+                      setViewMode('list');
+                    }} className={`px-3 py-1 rounded-md text-sm flex items-center gap-1 transition-all ${ viewMode === 'list' ? `bg-${accentColor} text-white shadow` : `${theme === 'dark' ? mutedTextColor : 'text-gray-800'} hover:text-${theme === 'dark' ? 'gray-100' : 'gray-900'} hover:bg-opacity-50 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-300'}` }`}
+                       title="View benchmark history as a sortable list"
                     >
                         <List size={16} /> List
                     </button>
-                    <button
-                        onClick={() => setViewMode('chart')}
-                        className={`px-3 py-1 rounded-md text-sm flex items-center gap-1 ${ 
-                        viewMode === 'chart' ? `bg-${accentColor} text-white shadow` : `${theme === 'dark' ? mutedTextColor : 'text-gray-800'} hover:text-${theme === 'dark' ? 'gray-100' : 'gray-900'} ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-300'}`
-                        }`}
+                    <button onClick={(e) => {
+                      e.preventDefault();
+                      setViewMode('area');
+                    }} className={`px-3 py-1 rounded-md text-sm flex items-center gap-1 transition-all ${ viewMode === 'area' ? `bg-${accentColor} text-white shadow` : `${theme === 'dark' ? mutedTextColor : 'text-gray-800'} hover:text-${theme === 'dark' ? 'gray-100' : 'gray-900'} hover:bg-opacity-50 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-300'}` }`}
+                        title="View score and accuracy trends over time as an area chart"
                     >
-                        <BarChart2 size={16} /> Chart
+                        <BarChart2 size={16} /> Area
+                    </button>
+                    <button onClick={(e) => {
+                      e.preventDefault();
+                      setViewMode('spider');
+                    }} className={`px-3 py-1 rounded-md text-sm flex items-center gap-1 transition-all ${ viewMode === 'spider' ? `bg-${accentColor} text-white shadow` : `${theme === 'dark' ? mutedTextColor : 'text-gray-800'} hover:text-${theme === 'dark' ? 'gray-100' : 'gray-900'} hover:bg-opacity-50 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-300'}` }`}
+                        title="View score and accuracy stats (average, best, lowest) as spider/radar charts"
+                    >
+                        <Hexagon size={16} /> Spider
                     </button>
                 </div>
             </div>
           </div>
-          
-          {} 
           {viewMode === 'list' ? (
             <>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[700px]">
                   <thead className={`${theme === 'dark' ? 'bg-gray-750' : 'bg-gray-100'}`}>
                     <tr>
-                      {['scenario', 'score', 'accuracy', 'difficulty', 'date'].map((key) => (
+                      {[
+                        { key: 'scenario', responsive: '' },
+                        { key: 'score', responsive: '' },
+                        { key: 'accuracy', responsive: '' },
+                        { key: 'difficulty', responsive: 'hidden sm:table-cell' },
+                        { key: 'date', responsive: '' },
+                      ].map((col) => (
                         <th
-                          key={key}
-                          className={`px-4 py-3 text-left text-xs font-medium ${mutedTextColor} uppercase tracking-wider cursor-pointer hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors`}
-                          onClick={() => handleSort(key as keyof BenchmarkScore)}
+                          key={col.key}
+                          className={`px-4 py-3 text-left text-xs font-medium ${mutedTextColor} uppercase tracking-wider cursor-pointer hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors ${col.responsive}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleSort(col.key as keyof BenchmarkScore);
+                          }}
                         >
                           <div className="flex items-center gap-1">
-                            {key.charAt(0).toUpperCase() + key.slice(1)} {getSortIcon(key as keyof BenchmarkScore)}
+                            {col.key.charAt(0).toUpperCase() + col.key.slice(1)} {getSortIcon(col.key as keyof BenchmarkScore)}
                           </div>
                         </th>
                       ))}
-                      <th className={`px-4 py-3 text-left text-xs font-medium ${mutedTextColor} uppercase tracking-wider`}>Notes</th>
+                      <th className={`px-4 py-3 text-left text-xs font-medium ${mutedTextColor} uppercase tracking-wider hidden md:table-cell`}>Notes</th>
                       <th className={`px-4 py-3 text-center text-xs font-medium ${mutedTextColor} uppercase tracking-wider`}>Actions</th>
                     </tr>
                   </thead>
@@ -942,7 +1242,7 @@ export default function AimTrackerPage() {
                         >
                           {bench.accuracy.toFixed(1)}%
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        <td className={`px-4 py-3 whitespace-nowrap text-sm hidden sm:table-cell`}>
                           <DifficultyBadge difficulty={bench.difficulty} theme={theme} />
                         </td>
                         <td className={`px-4 py-3 whitespace-nowrap text-sm ${mutedTextColor} flex items-center gap-1.5`}>
@@ -953,13 +1253,15 @@ export default function AimTrackerPage() {
                             year: '2-digit',
                           })}
                         </td>
-                        <td className={`px-4 py-3 text-sm ${mutedTextColor} max-w-[150px] truncate`} title={bench.notes}>
+                        <td className={`px-4 py-3 text-sm ${mutedTextColor} max-w-[150px] truncate hidden md:table-cell`} title={bench.notes}>
                           {bench.notes || '-'}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-center">
-                          {}
                           <button 
-                              onClick={favorites.includes(bench.scenario) ? undefined : () => handleAddFavorite(bench.scenario)}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleAddFavorite(bench.scenario);
+                              }}
                               className={`p-1 rounded transition-colors mr-1 
                                   ${favorites.includes(bench.scenario) 
                                   ? 'text-yellow-500 opacity-70 cursor-default' 
@@ -970,19 +1272,23 @@ export default function AimTrackerPage() {
                                   : `Add ${bench.scenario} to favorites`}
                               disabled={favorites.includes(bench.scenario)} 
                           >
-                              <Star size={16} fill={favorites.includes(bench.scenario) ? "currentColor" : "none"} /> {}
+                              <Star size={16} fill={favorites.includes(bench.scenario) ? "currentColor" : "none"} />
                           </button>
-                          {}
                           <button 
-                            onClick={() => handleCloneScore(bench.id)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleCloneScore(bench.id);
+                            }}
                             className={`p-1 rounded text-gray-400 hover:bg-blue-500 hover:text-white transition-colors mr-1`}
                             title={`Clone score for ${bench.scenario} on ${bench.date}`}
                           >
                             <Copy size={16} />
                           </button>
-                          {}
                           <button 
-                            onClick={() => handleDeleteScore(bench.id)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDeleteScore(bench.id);
+                            }}
                             className={`p-1 rounded text-gray-400 hover:bg-red-500 hover:text-white transition-colors`}
                             title={`Delete score for ${bench.scenario} on ${bench.date}`}
                           >
@@ -991,24 +1297,30 @@ export default function AimTrackerPage() {
                         </td>
                       </tr>
                     ))}
-                    {}
                     {sortedAndFilteredBenchmarks.length === 0 && (
                       <tr>
-                        <td colSpan={7} className={`text-center py-10 ${mutedTextColor} italic`}>
-                          No benchmarks found {filterScenario ? `for ${filterScenario}` : ''}.
+                        {/* Adjust colspan based on hidden columns */}
+                        <td colSpan={5} className={`text-center py-10 ${mutedTextColor} italic sm:hidden`}>
+                          No benchmarks found {selectedScenarios.length > 0 ? `for selected scenarios` : ''}.
+                        </td>
+                        <td colSpan={6} className={`text-center py-10 ${mutedTextColor} italic hidden sm:table-cell md:hidden`}>
+                          No benchmarks found {selectedScenarios.length > 0 ? `for selected scenarios` : ''}.
+                        </td>
+                        <td colSpan={7} className={`text-center py-10 ${mutedTextColor} italic hidden md:table-cell`}>
+                          No benchmarks found {selectedScenarios.length > 0 ? `for selected scenarios` : ''}.
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              {} 
               {sortedAndFilteredBenchmarks.length > INITIAL_LIMIT && (
                   <div className={`flex justify-center items-center gap-3 p-4 border-t ${cardBorder}`}>
                       {displayLimit < sortedAndFilteredBenchmarks.length && (
                           <button 
                               onClick={handleShowMore}
                               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg ${inputBg} border ${inputBorder} ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-${accentColor} transition-colors`}
+                              title={`Show the next ${SHOW_MORE_INCREMENT} entries in the list`}
                           >
                               <ListPlus size={16} /> Show More (+{SHOW_MORE_INCREMENT})
                           </button>
@@ -1017,6 +1329,7 @@ export default function AimTrackerPage() {
                           <button 
                               onClick={handleShowAll}
                               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg ${inputBg} border ${inputBorder} ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-${accentColor} transition-colors`}
+                              title="Show all entries in the list"
                           >
                               <ListEnd size={16} /> Show All ({sortedAndFilteredBenchmarks.length})
                           </button>
@@ -1025,6 +1338,7 @@ export default function AimTrackerPage() {
                           <button 
                               onClick={handleShowDefault}
                               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg ${inputBg} border ${inputBorder} ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-${accentColor} transition-colors`}
+                              title={`Show only the first ${INITIAL_LIMIT} entries in the list`}
                           >
                               <ListMinus size={16} /> Show Default ({INITIAL_LIMIT})
                           </button>
@@ -1032,13 +1346,12 @@ export default function AimTrackerPage() {
                   </div>
               )}
             </>
-          ) : (
+          ) : viewMode === 'area' ? (
             <div className="p-4 md:p-6 h-[400px]">
               {chartFilteredBenchmarks.length > 1 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -15, bottom: 5 }}>
-                     {}
-                     <defs>
+                  <AreaChart data={areaChartData} margin={{ top: 5, right: 10, left: -15, bottom: 5 }}>
+                    <defs>
                       <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={chartScoreColor} stopOpacity={0.7} />
                         <stop offset="95%" stopColor={chartScoreColor} stopOpacity={0} />
@@ -1089,19 +1402,79 @@ export default function AimTrackerPage() {
                     />
                     <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px', color: chartTextColor }} />
                     
-                    {}
                     <Area type="monotone" dataKey="Score" stroke={chartScoreColor} fillOpacity={1} fill="url(#colorScore)" yAxisId="left" dot={{ r: 3, fill: chartScoreColor }} activeDot={{ r: 6, stroke: chartScoreColor }} connectNulls={false} />
                     <Area type="monotone" dataKey="Accuracy" stroke={chartAccColor} fillOpacity={1} fill="url(#colorAcc)" yAxisId="right" unit="%" dot={{ r: 3, fill: chartAccColor }} activeDot={{ r: 6, stroke: chartAccColor }} connectNulls={false}/>
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
                  <div className={`${mutedTextColor} h-full flex items-center justify-center italic`}>
-                     Need at least 2 data points {filterScenario ? `for ${filterScenario}` : ''} 
+                     Need at least 2 data points {selectedScenarios.length > 0 ? `for selected scenarios (${selectedScenarios.join(', ')})` : ''} 
                      {chartTimePeriod !== 'all' ? `in the last ${chartTimePeriod === '7d' ? 7 : 30} days` : ''} to show chart.
                  </div>
               )}
             </div>
-          )}
+          ) : viewMode === 'spider' ? (
+            <div className="p-4 md:p-6 min-h-[400px]">
+              {scenarioOrOverallStats && scenarioOrOverallStats.count > 0 ? (
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
+                  <div className="w-full md:w-1/2 h-[350px]">
+                    <h4 className={`text-center font-semibold mb-2 ${textColor}`}>{scenarioOrOverallStats.scenarioName} - Score Stats</h4>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart cx="50%" cy="50%" outerRadius="80%" data={scoreSpiderData}>
+                        <PolarGrid stroke={chartGridColor} />
+                        <PolarAngleAxis dataKey="stat" stroke={chartTextColor} fontSize={11} tick={{ fill: chartTextColor }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 'auto']} stroke={chartTextColor} fontSize={10} />
+                        <Radar name={scenarioOrOverallStats.scenarioName} dataKey="value" stroke={chartScoreColor} fill={chartScoreColor} fillOpacity={0.6} />
+                        <Tooltip
+                           contentStyle={{
+                            backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                            border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '8px',
+                            color: textColor,
+                          }}
+                          formatter={(value: unknown, name: string, props) => {
+                            if (typeof value !== 'number' || isNaN(value)) return null;
+                            return [value.toLocaleString(), props.payload?.stat || 'Score'];
+                          }}
+                          labelFormatter={() => ''} 
+                        />
+                         <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '20px', color: chartTextColor }} />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="w-full md:w-1/2 h-[350px]">
+                     <h4 className={`text-center font-semibold mb-2 ${textColor}`}>{scenarioOrOverallStats.scenarioName} - Accuracy Stats</h4>
+                     <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart cx="50%" cy="50%" outerRadius="80%" data={accuracySpiderData}>
+                        <PolarGrid stroke={chartGridColor} />
+                        <PolarAngleAxis dataKey="stat" stroke={chartTextColor} fontSize={11} tick={{ fill: chartTextColor }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} stroke={chartTextColor} fontSize={10} />
+                        <Radar name={scenarioOrOverallStats.scenarioName} dataKey="value" stroke={chartAccColor} fill={chartAccColor} fillOpacity={0.6} />
+                         <Tooltip
+                           contentStyle={{
+                            backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                            border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '8px',
+                            color: textColor,
+                          }}
+                           formatter={(value: unknown, name: string, props) => {
+                            if (typeof value !== 'number' || isNaN(value)) return null;
+                            return [`${(value as number).toFixed(1)}%`, props.payload?.stat || 'Accuracy'];
+                          }}
+                          labelFormatter={() => ''} 
+                        />
+                         <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '20px', color: chartTextColor }} />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ) : (
+                <div className={`${mutedTextColor} h-full flex items-center justify-center italic`}>
+                  No data available {selectedScenarios.length > 0 ? `for selected scenarios`: ''} to display stats.
+                </div>
+              )}
+            </div>
+          ) : null}
         </main>
 
         <section className={`${cardBg} rounded-xl border ${cardBorder} shadow-lg p-5`}> 
@@ -1121,21 +1494,31 @@ export default function AimTrackerPage() {
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-600 mt-1">Your key is stored locally in this session.</p>
               </div>
-              <button
-                onClick={handleAiAnalysis}
-                disabled={!aiApiKey || isAnalyzing}
-                className={`flex items-center justify-center gap-2 w-full md:w-auto md:self-start bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isAnalyzing ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" /> Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <BrainCircuit size={16} /> Analyze Performance
-                  </>
-                )}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto md:self-start">
+                <button
+                  onClick={handleAiAnalysis}
+                  disabled={!aiApiKey || isAnalyzing}
+                  className={`flex items-center justify-center gap-2 flex-grow bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed`}
+                  title={!aiApiKey ? "Enter an AI API key to enable analysis" : "Analyze the performance based on current filters using the AI Coach"}
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" /> Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <BrainCircuit size={16} /> Analyze Performance
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleCopyPrompt}
+                  className={`flex items-center justify-center gap-2 flex-grow bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md`}
+                  title="Copy the system prompt and user data prompt (based on current filters) to the clipboard for use elsewhere"
+                >
+                  <Copy size={16} /> {promptCopied ? 'Copied!' : 'Copy Prompt'}
+                </button>
+              </div>
             </div>
             <div
               className={`${theme === 'dark' ? 'bg-gray-750' : 'bg-gray-100'} p-4 rounded-lg border ${
@@ -1158,7 +1541,6 @@ export default function AimTrackerPage() {
 
         <footer className={`mt-10 text-center ${mutedTextColor} text-sm`}>Keep grinding! Consistency is key.</footer>
 
-        {} 
         {showBulkAddModal && (
             <BulkAddModal 
                 onClose={handleCloseBulkAdd} 
@@ -1178,7 +1560,7 @@ export default function AimTrackerPage() {
         )}
       </div>
     </div>
-  ); 
+  );
 } 
 
 
@@ -1356,18 +1738,15 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-start pt-16 z-50 overflow-y-auto"> 
       <div className={`${cardBg} rounded-xl shadow-2xl w-full max-w-4xl border ${cardBorder} max-h-[85vh] flex flex-col`}> 
-        {}
         <div className={`p-4 border-b ${cardBorder} flex justify-between items-center sticky top-0 ${cardBg} z-10`}>
           <h2 className={`text-xl font-semibold ${headerColor} flex items-center gap-2`}><Library size={22} /> Bulk Add Benchmark Scores</h2>
-          <button onClick={onClose} className={`p-1.5 rounded-full ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600`}>
+          <button onClick={onClose} className={`p-1.5 rounded-full ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600`} title="Close the bulk add modal">
             <X size={20} />
           </button>
         </div>
 
-        {}
-        <div className="p-6 flex-grow overflow-y-auto grid grid-cols-3 gap-6">
-            {}
-            <div className="col-span-1 flex flex-col gap-3">
+        <div className="p-6 flex-grow overflow-y-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="col-span-1 lg:col-span-1 flex flex-col gap-3">
                 <h3 className={`text-sm font-semibold ${mutedTextColor}`}>1. Select Scenarios</h3>
                 <input 
                     type="text"
@@ -1376,7 +1755,7 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className={`w-full ${inputBg} ${inputBorder} p-2 rounded border text-sm focus:outline-none focus:ring-1 focus:ring-${accentColor}`}
                 />
-                <div className={`border ${cardBorder} rounded-lg flex-grow overflow-y-auto max-h-60 pr-1`}> {}
+                <div className={`border ${cardBorder} rounded-lg flex-grow overflow-y-auto max-h-60 pr-1`}>
                     {filteredScenarios.length > 0 ? filteredScenarios.map(sc => (
                         <label key={sc} className={`flex items-center gap-2 p-2 cursor-pointer ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 rounded`}>
                             <input 
@@ -1393,86 +1772,94 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({
                 </div>
             </div>
 
-            {}
-            <div className="col-span-2 flex flex-col gap-4">
+            <div className="col-span-1 lg:col-span-2 flex flex-col gap-4">
                 <h3 className={`text-sm font-semibold ${mutedTextColor}`}>2. Enter Scores</h3>
-                {selectedScenarios.length === 0 && (
+                {selectedScenarios.length === 0 ? (
                     <p className={`text-xs italic ${mutedTextColor} mt-2`}>Select one or more scenarios from the left to start adding scores.</p>
-                )}
-                {}
-                <div className="flex-grow overflow-y-auto space-y-4 pr-1 max-h-[calc(85vh-250px)]"> {}
-                    {selectedScenarios.map(scenario => (
-                        <div key={scenario} className={`${theme === 'dark' ? 'bg-gray-750' : 'bg-gray-100'} p-3 rounded-lg border ${cardBorder}`}>
-                            <h4 className={`font-semibold ${textColor} mb-2 flex justify-between items-center`}> 
-                                {scenario}
-                                <button 
-                                    onClick={() => handleAddRow(scenario)}
-                                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-${accentColor} text-white hover:opacity-80`} 
-                                    title={`Add another row for ${scenario}`}
-                                >
-                                    <PlusCircle size={14} /> Add Row
-                                </button>
-                            </h4>
-                            {}
-                            <div className="space-y-2">
-                                {(entriesByScenario[scenario] || []).map((entry, index) => (
-                                    <div key={entry.tempId} className="grid grid-cols-12 gap-2 items-center">
-                                        {}
-                                        <div className="col-span-3">
-                                            {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Date</label>}
-                                            <input type="date" value={entry.date} onChange={e => handleEntryChange(scenario, entry.tempId, 'date', e.target.value)} className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
+                ) : (
+                    <div className="flex-grow overflow-y-auto space-y-4 pr-1 max-h-[calc(85vh-250px)]">
+                        {selectedScenarios.map(scenario => (
+                            <div key={scenario} className={`${theme === 'dark' ? 'bg-gray-750' : 'bg-gray-100'} p-3 rounded-lg border ${cardBorder}`}>
+                                <h4 className={`font-semibold ${textColor} mb-2 flex justify-between items-center`}> 
+                                    {scenario}
+                                    <button 
+                                        onClick={() => handleAddRow(scenario)}
+                                        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-${accentColor} text-white hover:opacity-80`} 
+                                        title={`Add another row for ${scenario}`}
+                                    >
+                                        <PlusCircle size={14} /> Add Row
+                                    </button>
+                                </h4>
+                                <div className="space-y-2">
+                                    {(entriesByScenario[scenario] || []).map((entry, index) => (
+                                        <div key={entry.tempId} className="grid grid-cols-12 gap-2 items-center">
+                                            <div className="col-span-3">
+                                                {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Date</label>}
+                                                <input type="date" value={entry.date} onChange={e => handleEntryChange(scenario, entry.tempId, 'date', e.target.value)} className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
+                                            </div>
+                                            <div className="col-span-2">
+                                                {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Score</label>}
+                                                <input type="number" value={entry.score} onChange={e => handleEntryChange(scenario, entry.tempId, 'score', e.target.value)} required className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
+                                            </div>
+                                            <div className="col-span-2">
+                                                {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Acc %</label>}
+                                                <input type="number" step="0.1" value={entry.accuracy} onChange={e => handleEntryChange(scenario, entry.tempId, 'accuracy', e.target.value)} required className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
+                                            </div>
+                                            <div className="col-span-2">
+                                                {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Diff</label>}
+                                                <select value={entry.difficulty} onChange={e => handleEntryChange(scenario, entry.tempId, 'difficulty', e.target.value as BenchmarkScore['difficulty'])} required className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`}>
+                                                    {['Easy', 'Medium', 'Hard', 'Insane'].map(d => <option key={d} value={d}>{d}</option>)} 
+                                                </select>
+                                            </div>
+                                            <div className="col-span-2">
+                                                {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Notes</label>}
+                                                <input type="text" value={entry.notes} onChange={e => handleEntryChange(scenario, entry.tempId, 'notes', e.target.value)} placeholder="Optional" className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
+                                            </div>
+                                            <div className="col-span-1 flex items-end justify-center">
+                                                {(entriesByScenario[scenario]?.length ?? 0) > 1 && (
+                                                    <button onClick={() => handleRemoveRow(scenario, entry.tempId)} className={`p-0.5 mt-3 rounded text-gray-400 hover:bg-red-500 hover:text-white`} title="Remove row">
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                        {}
-                                        <div className="col-span-2">
-                                            {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Score</label>}
-                                            <input type="number" value={entry.score} onChange={e => handleEntryChange(scenario, entry.tempId, 'score', e.target.value)} required className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
-                                        </div>
-                                        {}
-                                        <div className="col-span-2">
-                                            {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Acc %</label>}
-                                            <input type="number" step="0.1" value={entry.accuracy} onChange={e => handleEntryChange(scenario, entry.tempId, 'accuracy', e.target.value)} required className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
-                                        </div>
-                                        {}
-                                        <div className="col-span-2">
-                                            {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Diff</label>}
-                                            <select value={entry.difficulty} onChange={e => handleEntryChange(scenario, entry.tempId, 'difficulty', e.target.value as BenchmarkScore['difficulty'])} required className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`}>
-                                                {['Easy', 'Medium', 'Hard', 'Insane'].map(d => <option key={d} value={d}>{d}</option>)} 
-                                            </select>
-                                        </div>
-                                        {}
-                                        <div className="col-span-2">
-                                            {index === 0 && <label className={`block text-[10px] ${mutedTextColor} mb-0.5`}>Notes</label>}
-                                            <input type="text" value={entry.notes} onChange={e => handleEntryChange(scenario, entry.tempId, 'notes', e.target.value)} placeholder="Optional" className={`w-full ${inputBg} ${inputBorder} p-1 rounded border text-xs focus:outline-none focus:ring-1 focus:ring-${accentColor}`} />
-                                        </div>
-                                        {}
-                                        <div className="col-span-1 flex items-end justify-center">
-                                            {(entriesByScenario[scenario]?.length ?? 0) > 1 && (
-                                                <button onClick={() => handleRemoveRow(scenario, entry.tempId)} className={`p-0.5 mt-3 rounded text-gray-400 hover:bg-red-500 hover:text-white`} title="Remove row">
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                )}
+                <button 
+                    type="button" 
+                    onClick={() => handleAddRow(selectedScenarios[0])} 
+                    className={`self-start mt-2 flex items-center gap-1.5 text-xs px-2 py-1 rounded ${inputBg} border ${inputBorder} ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 hover:text-${accentColor} transition-colors`}
+                    title={selectedScenarios.length > 0 ? `Add another entry row for ${selectedScenarios[0]}` : 'Select a scenario first'}
+                    disabled={selectedScenarios.length === 0} // Disable if no scenario is selected
+                  >
+                      <PlusCircle size={14} /> Add Entry
+                  </button>
             </div>
         </div>
 
-        {}
-        <div className={`p-4 border-t ${cardBorder} flex justify-end gap-3 sticky bottom-0 ${cardBg} z-10`}>
-          <button onClick={onClose} className={`px-4 py-2 rounded-lg text-sm ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 border ${cardBorder}`}>Cancel</button>
-          <button 
-            onClick={handleSubmit}
-            disabled={selectedScenarios.length === 0} 
-            className={`flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            <CheckSquare size={18} /> Submit All Entries
-          </button>
+        <div className={`p-4 border-t ${cardBorder} flex justify-end items-center sticky bottom-0 ${cardBg} z-10`}>
+            <button 
+              onClick={onClose} 
+              className={`px-4 py-2 rounded-lg text-sm ${mutedTextColor} hover:bg-gray-700 dark:hover:bg-gray-600 border ${cardBorder}`}
+              title="Cancel bulk add and close the modal without saving"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit} 
+              disabled={selectedScenarios.length === 0} 
+              className={`flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={selectedScenarios.length === 0 ? "Select at least one scenario to enable submission" : "Submit all valid entries entered in the form above"}
+            >
+              <CheckSquare size={18} /> Submit All Entries
+            </button>
         </div>
       </div>
     </div>
   );
 };
+
